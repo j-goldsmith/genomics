@@ -7,11 +7,32 @@ def sra_to_vcf(data_root, sra_name, ref):
     fastq = sra_to_fastq(sra_name, data_root)
     sam = fastq_to_sam(fastq, ref)
     bam = sam_to_bam(sam)
-    recalibrated_bam = recalibrate_bases(bam, ref)
+    #recalibrated_bam = recalibrate_bases(bam, ref)
+    raw_variants = bam_to_raw_vcf(bam, ref)
+
+    os.remove(fastq)
+    os.remove(sam)
+    os.remove(bam)
+
+def bam_to_raw_vcf(bam,ref):
+    filename = bam.replace('bam','vcf')
+
+    if os.path.exists(filename) is False:
+        subprocess.run([
+            'java',
+            '-jar',
+            '/bin/GenomeAnalysisTK.jar',
+            '-T', 'HaplotypeCaller',
+            '-R', ref,
+            '-I', bam,
+            '-o', filename])
+
+    return filename
 
 def sam_to_bam(sam):
     filename = sam.replace('sam','bam')
     sorted_f = filename[:-4] + '_sorted' + filename[-4:]
+    rg_f = filename[:-4] + '_rg' + filename[-4:]
 
     if os.path.exists(sorted_f) is False:
         subprocess.run([
@@ -22,6 +43,18 @@ def sam_to_bam(sam):
             'INPUT='+sam,
             'OUTPUT='+sorted_f,
             'SORT_ORDER=coordinate'])
+        subprocess.run([
+            'java',
+            '-jar',
+            '/bin/picard.jar',
+            'AddOrReplaceReadGroups',
+            'INPUT=' + sorted_f,
+            'OUTPUT=' + rg_f,
+            'RGID=1',
+            'RGLB=libl',
+            'RGPL=illumina',
+            'RGSM='+sam,
+            'RGPU=unit1'])
 
     if os.path.exists(filename) is False:
         subprocess.run([
@@ -29,9 +62,13 @@ def sam_to_bam(sam):
             '-jar',
             '/bin/picard.jar',
             'MarkDuplicates',
-            'INPUT=' + sorted_f,
+            'INPUT=' + rg_f,
             'OUTPUT=' + filename,
+            'CREATE_INDEX=true',
             'METRICS_FILE=metrics.txt'])
+
+    os.remove(rg_f)
+    os.remove(sorted_f)
 
     return filename
 
@@ -76,7 +113,6 @@ def recalibrate_bases(bam, ref):
             '-T', 'BaseRecalibrator',
             '-R', ref,
             '-I', bam,
-            '-L', '20',
             '-o', table_f])
 
     if os.path.exists(post_table_f) is False:
@@ -87,7 +123,6 @@ def recalibrate_bases(bam, ref):
             '-T', 'BaseRecalibrator',
             '-R', ref,
             '-I', bam,
-            '-L', '20',
             '-BQSR', table_f,
             '-o', post_table_f])
 
@@ -98,11 +133,13 @@ def recalibrate_bases(bam, ref):
             '-T', 'PrintReads',
             '-R', ref,
             '-I', bam,
-            '-L', '20',
             '-BQSR', table_f,
             '-o', filename])
 
     return filename
 
 if __name__ == "__main__":
-    sra_to_vcf('./phylos/data/', 'SRR4448725.sra', "./phylos/data/ref/GCA_001865755.1_ASM186575v1_genomic.fna")
+    p = './phylos/data/sra/'
+    for f in os.listdir(p):
+        if os.path.isfile(os.path.join(p, f)):
+            sra_to_vcf('./phylos/data/', f, "./phylos/data/ref/GCA_001865755.1_ASM186575v1_genomic.fna")
