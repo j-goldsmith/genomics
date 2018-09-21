@@ -1,2 +1,4 @@
 # genomics
-SRA processing in Python
+SRA processing
+
+todo:dockerize
